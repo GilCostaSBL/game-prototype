@@ -1,7 +1,4 @@
-# main.py
-from src.game import Game
+from src import game
 
 if __name__ == "__main__":
-    game = Game()
-    game.run()
-    game.quit()
+    game.main()
