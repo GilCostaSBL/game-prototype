@@ -105,7 +105,19 @@ class Game:
         self.all_sprites.add(left_poster, right_poster)
 
     def draw(self):
-        self.screen.fill(BLACK)
+        # Background color (grassy green)
+        BACKGROUND_COLOR = (34, 139, 34)  # forest green
+        # In your game loop, before drawing sprites:
+        self.screen.fill(BACKGROUND_COLOR)
+
+        LANE_COLOR = (100, 100, 100)  # gray pavement color
+        LANE_WIDTH = SCREEN_WIDTH // 3
+
+        # Left lane
+        pygame.draw.rect(self.screen, LANE_COLOR, (SCREEN_WIDTH // 6 - LANE_WIDTH // 2, 0, LANE_WIDTH, SCREEN_HEIGHT))
+        # Right lane
+        pygame.draw.rect(self.screen, LANE_COLOR, ((SCREEN_WIDTH * 5) // 6 - LANE_WIDTH // 2, 0, LANE_WIDTH, SCREEN_HEIGHT))
+
 
         # --- Title screen ---
         if self.show_title:
