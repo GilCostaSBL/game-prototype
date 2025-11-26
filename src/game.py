@@ -1,6 +1,8 @@
 import pygame
 import random
 import sys
+import json
+import os
 
 pygame.init()
 
@@ -26,6 +28,28 @@ screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
 pygame.display.set_caption("Pick Your Favorite Movie!")
 clock = pygame.time.Clock()
 font = pygame.font.Font(None, 36)
+
+def wrap_text_multi(text, font, max_width):
+    """
+    Splits text into as many lines as needed to fit within max_width.
+    Returns a list of lines.
+    """
+    words = text.split(" ")
+    lines = []
+    current_line = ""
+
+    for word in words:
+        test_line = (current_line + " " + word).strip()
+        if font.size(test_line)[0] <= max_width:
+            current_line = test_line
+        else:
+            lines.append(current_line)
+            current_line = word
+
+    if current_line:
+        lines.append(current_line)
+
+    return lines
 
 
 # --- Classes ---
@@ -73,9 +97,38 @@ class Poster(pygame.sprite.Sprite):
             self.kill()
 
     def draw(self, surface):
+        # --- Poster rectangle ---
         surface.blit(self.image, self.rect)
-        text_rect = self.title_surface.get_rect(center=(self.rect.centerx, self.rect.bottom + 20))
-        surface.blit(self.title_surface, text_rect)
+    
+        # --- Title box dimensions ---
+        title_box_width = self.rect.width
+        title_box_height = 60  # can be adjusted
+        title_box_x = self.rect.left
+        title_box_y = self.rect.bottom + 15
+    
+        # Draw the title box (transparent look)
+        title_box_rect = pygame.Rect(
+            title_box_x,
+            title_box_y,
+            title_box_width,
+            title_box_height
+        )
+    
+        # Optional: faint background to help reading
+        overlay = pygame.Surface((title_box_rect.width, title_box_rect.height), pygame.SRCALPHA)
+        overlay.fill((0, 0, 0, 80))  # transparent black
+        surface.blit(overlay, (title_box_x, title_box_y))
+    
+        # --- Wrapped text inside the title box ---
+        max_text_width = title_box_rect.width - 10  # small padding
+        lines = wrap_text_multi(self.title, font, max_text_width)
+    
+        # Top-aligned text
+        y_offset = title_box_y + 5
+        for line in lines:
+            line_surface = font.render(line, True, WHITE)
+            surface.blit(line_surface, (title_box_x + 5, y_offset))
+            y_offset += line_surface.get_height() + 2
 
 
 class SelectionPanel:
@@ -98,9 +151,15 @@ class SelectionPanel:
         pygame.draw.rect(screen, PANEL_BG, (self.x, 0, self.width, SCREEN_HEIGHT))
         y = 40
         for title in self.selected_titles:
-            text = self.font.render(title, True, WHITE)
-            screen.blit(text, (self.x + 20, y))
-            y += 35
+            lines = wrap_text_multi(title, self.font, self.width - 40)
+
+            y_start = y
+            for line in lines:
+                text = self.font.render(line, True, WHITE)
+                screen.blit(text, (self.x + 20, y_start))
+                y_start += text.get_height() + 2
+
+            y = y_start + 8  # spacing between entries
 
         pygame.draw.rect(screen, BUTTON_COLOR, self.done_button_rect)
         btn_text = self.font.render("Done!", True, BLACK)
@@ -112,6 +171,10 @@ class SelectionPanel:
             if self.done_button_rect.collidepoint(event.pos):
                 self.is_done = True
 
+def load_movie_categories():
+    json_path = os.path.join(os.path.dirname(__file__), "data", "movies_by_category.json")
+    with open(json_path, "r", encoding="utf-8") as f:
+        return json.load(f)
 
 
 # --- Game Loop ---
@@ -121,16 +184,17 @@ def main():
     posters = pygame.sprite.Group()
     panel = SelectionPanel(PANEL_X, PANEL_WIDTH)
 
-    movie_pairs = [
-        ("Inception", "Interstellar"),
-        ("Titanic", "Avatar"),
-        ("The Matrix", "John Wick"),
-        ("Toy Story", "Finding Nemo"),
-        ("The Dark Knight", "Joker"),
-        ("Pulp Fiction", "Kill Bill"),
-        ("The Lion King", "Aladdin"),
-        ("Forrest Gump", "Cast Away")
-    ]
+    movie_categories = load_movie_categories()
+
+    # Flatten all movies into a single list (for now)
+    all_movies = []
+    for category, movies in movie_categories.items():
+        all_movies.extend(movies)
+
+    # Shuffle movies and make pairs
+    random.shuffle(all_movies)
+    movie_pairs = list(zip(all_movies[0::2], all_movies[1::2]))  # pair every 2 items
+
     current_pair_index = 0
     pair_active = False
 
@@ -207,10 +271,13 @@ def main():
 
             # Show the full persistent list of all selected movies
             for t in panel.all_selected_titles:
-                text = summary_font.render(t, True, WHITE)
-                screen.blit(text, (100, y))
-                y += 50
-
+                lines = wrap_text_multi(t, summary_font, 600)
+                y_line = y
+                for line in lines:
+                    text = summary_font.render(line, True, WHITE)
+                    screen.blit(text, (100, y_line))
+                    y_line += text.get_height() + 4
+                y = y_line + 12
 
         pygame.display.flip()
         clock.tick(60)
