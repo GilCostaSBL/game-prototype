@@ -3,8 +3,16 @@ import random
 import sys
 import json
 import os
+import requests  # <-- NEW: Import requests for API calls
+from io import BytesIO # <-- NEW: Import BytesIO for image processing
 
 pygame.init()
+
+# --- API Configuration ---
+# !!! IMPORTANT: Replace this placeholder with your actual OMDb API key
+OMDB_API_KEY = "70e7e6d9" 
+OMDB_URL = "http://www.omdbapi.com/?i=tt3896198&apikey=70e7e6d9"
+
 
 # --- Screen and layout ---
 SCREEN_WIDTH = 800
@@ -51,6 +59,58 @@ def wrap_text_multi(text, font, max_width):
 
     return lines
 
+# --- NEW HELPER FUNCTIONS ---
+
+def load_image_from_url(url, width, height):
+    """Downloads an image from a URL and returns a scaled Pygame Surface."""
+    try:
+        response = requests.get(url)
+        response.raise_for_status() # Check for bad status codes
+        image_file = BytesIO(response.content)
+        image_surface = pygame.image.load(image_file).convert_alpha()
+        # Scale the image to the poster size (100x140)
+        return pygame.transform.scale(image_surface, (width, height))
+    except requests.exceptions.RequestException as e:
+        print(f"Error fetching image from URL {url}: {e}")
+    except pygame.error as e:
+        print(f"Error loading image into Pygame: {e}")
+    
+    # Return a default colored surface on failure
+    default_surface = pygame.Surface((width, height))
+    default_surface.fill(GRAY)
+    return default_surface
+
+
+def get_poster_image(title, api_key, poster_width=100, poster_height=140):
+    """
+    Fetches the poster URL from OMDb and loads the image into a Pygame Surface.
+    
+    Note: Network calls are synchronous and can freeze the game. 
+    For a production app, use multithreading for API requests.
+    """
+    try:
+        params = {
+            't': title,      # Search by exact title
+            'apikey': api_key,
+            'plot': 'short'  # Optional: request is still fast
+        }
+        response = requests.get(OMDB_URL, params=params)
+        data = response.json()
+
+        if data.get('Response') == 'True' and data.get('Poster') not in ('N/A', None):
+            poster_url = data['Poster']
+            print(f"Fetched poster URL for {title}: {poster_url}")
+            return load_image_from_url(poster_url, poster_width, poster_height)
+        else:
+            print(f"Poster not found for {title}. OMDb response: {data.get('Error', 'N/A')}")
+
+    except Exception as e:
+        print(f"An error occurred during OMDb lookup for {title}: {e}")
+
+    # Fallback: return a randomly colored surface
+    default_surface = pygame.Surface((poster_width, poster_height))
+    default_surface.fill((random.randint(100, 200), random.randint(100, 200), random.randint(100, 200)))
+    return default_surface
 
 # --- Classes ---
 
@@ -79,10 +139,11 @@ class Player(pygame.sprite.Sprite):
 
 
 class Poster(pygame.sprite.Sprite):
-    def __init__(self, lane, title):
+    # CHANGED: __init__ now accepts an image surface
+    def __init__(self, lane, title, image_surface): 
         super().__init__()
-        self.image = pygame.Surface((100, 140))
-        self.image.fill((random.randint(100, 200), random.randint(100, 200), random.randint(100, 200)))
+        # Use the provided image surface instead of creating a colored square
+        self.image = image_surface
         self.rect = self.image.get_rect()
         self.lane = lane
         self.title = title
@@ -97,16 +158,37 @@ class Poster(pygame.sprite.Sprite):
             self.kill()
 
     def draw(self, surface):
-        # --- Poster rectangle ---
+        # --- Poster image ---
         surface.blit(self.image, self.rect)
     
-        # --- Title box dimensions ---
+        # --- Title box constants & preparation ---
         title_box_width = self.rect.width
-        title_box_height = 60  # can be adjusted
         title_box_x = self.rect.left
         title_box_y = self.rect.bottom + 15
+        
+        # Wrapped text preparation
+        max_text_width = title_box_width - 10  # small padding
+        lines = wrap_text_multi(self.title, font, max_text_width)
+        
+        line_surfaces = []
+        total_text_height = 0
+        line_spacing = 2
+        vertical_padding = 10 
+        
+        # 1. Calculate total height and prepare surfaces (Dynamic Height)
+        for line in lines:
+            line_surface = font.render(line, True, WHITE)
+            line_surfaces.append(line_surface)
+            total_text_height += line_surface.get_height()
+            
+        # Add spacing between lines, and top/bottom padding
+        if line_surfaces:
+            total_text_height += (len(line_surfaces) - 1) * line_spacing
+            total_text_height += vertical_padding
+            
+        title_box_height = max(total_text_height, 20) # Min height
     
-        # Draw the title box (transparent look)
+        # 2. Draw the title box
         title_box_rect = pygame.Rect(
             title_box_x,
             title_box_y,
@@ -119,16 +201,14 @@ class Poster(pygame.sprite.Sprite):
         overlay.fill((0, 0, 0, 80))  # transparent black
         surface.blit(overlay, (title_box_x, title_box_y))
     
-        # --- Wrapped text inside the title box ---
-        max_text_width = title_box_rect.width - 10  # small padding
-        lines = wrap_text_multi(self.title, font, max_text_width)
-    
-        # Top-aligned text
-        y_offset = title_box_y + 5
-        for line in lines:
-            line_surface = font.render(line, True, WHITE)
-            surface.blit(line_surface, (title_box_x + 5, y_offset))
-            y_offset += line_surface.get_height() + 2
+        # 3. Draw Centered Text
+        y_offset = title_box_y + (vertical_padding // 2) # Start with top padding (5px)
+        for line_surface in line_surfaces:
+            # Calculate X position for centering (Centered Text)
+            centered_x = title_box_x + (title_box_width - line_surface.get_width()) // 2
+            
+            surface.blit(line_surface, (centered_x, y_offset))
+            y_offset += line_surface.get_height() + line_spacing
 
 
 class SelectionPanel:
@@ -233,8 +313,15 @@ def main():
         if not pair_active and current_pair_index < len(movie_pairs):
             pair_active = True
             left_movie, right_movie = movie_pairs[current_pair_index]
-            left_poster = Poster(0, left_movie)
-            right_poster = Poster(1, right_movie)
+            
+            # --- MODIFIED: Fetch and load poster images ---
+            left_image = get_poster_image(left_movie, OMDB_API_KEY)
+            right_image = get_poster_image(right_movie, OMDB_API_KEY)
+            
+            left_poster = Poster(0, left_movie, left_image)
+            right_poster = Poster(1, right_movie, right_image)
+            # ----------------------------------------------
+            
             posters.add(left_poster, right_poster)
             all_sprites.add(left_poster, right_poster)
 
@@ -242,7 +329,7 @@ def main():
 
         # Collision detection
         for poster in posters:
-            if player.rect.colliderect(poster.rect):
+            if player.rect.colliderect(poster.rect) and game_done == False:
                 panel.add_title(poster.title)
                 for other in list(posters):
                     other.kill()
