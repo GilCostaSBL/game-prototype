@@ -68,7 +68,7 @@ def load_image_from_url(url, width, height):
         response.raise_for_status() # Check for bad status codes
         image_file = BytesIO(response.content)
         image_surface = pygame.image.load(image_file).convert_alpha()
-        # Scale the image to the poster size (100x140)
+        # CHANGED: Scale the image to the new poster size (200x280) - logic handles the new width/height variables
         return pygame.transform.scale(image_surface, (width, height))
     except requests.exceptions.RequestException as e:
         print(f"Error fetching image from URL {url}: {e}")
@@ -81,7 +81,7 @@ def load_image_from_url(url, width, height):
     return default_surface
 
 
-def get_poster_image(title, api_key, poster_width=100, poster_height=140):
+def get_poster_image(title, api_key, poster_width=200, poster_height=280):
     """
     Fetches the poster URL from OMDb and loads the image into a Pygame Surface.
     
@@ -139,16 +139,17 @@ class Player(pygame.sprite.Sprite):
 
 
 class Poster(pygame.sprite.Sprite):
-    # CHANGED: __init__ now accepts an image surface
     def __init__(self, lane, title, image_surface): 
         super().__init__()
-        # Use the provided image surface instead of creating a colored square
         self.image = image_surface
         self.rect = self.image.get_rect()
         self.lane = lane
         self.title = title
         self.rect.centerx = lane * LANE_WIDTH + LANE_WIDTH // 2
-        self.rect.y = -140
+        
+        # CHANGED: Start position adjusted to the new height (280)
+        self.rect.y = -280 
+        
         self.speed = 2
         self.title_surface = font.render(self.title, True, WHITE)
 
