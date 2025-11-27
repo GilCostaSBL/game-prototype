@@ -72,7 +72,7 @@ def wrap_text_multi(text, font, max_width):
 
 # --- HELPER FUNCTIONS ---
 
-def load_image_from_url(url, width, height):
+def load_image_from_url(url, width, height_limit):
     """Downloads an image from a URL and returns a scaled Pygame Surface."""
     try:
         # --- CRITICAL CHANGE: Added verify=False here ---
@@ -81,20 +81,30 @@ def load_image_from_url(url, width, height):
         
         image_file = BytesIO(response.content)
         image_surface = pygame.image.load(image_file).convert_alpha()
-        # Scale the image to the new poster size (200x280)
-        return pygame.transform.scale(image_surface, (width, height))
+
+        # NEW SCALING LOGIC
+        original_width = image_surface.get_width()
+        original_height = image_surface.get_height()
+        
+        # 1. Calculate new height based on fixed width (216) and aspect ratio
+        new_height = int(width * (original_height / original_width))
+        # 2. Apply the height limit (320)
+        final_height = min(new_height, height_limit)
+        
+        # 3. Scale the image
+        return pygame.transform.scale(image_surface, (width, final_height))
     except requests.exceptions.RequestException as e:
         print(f"Error fetching image from URL {url}: {e}")
     except pygame.error as e:
         print(f"Error loading image into Pygame: {e}")
     
     # Return a default colored surface on failure
-    default_surface = pygame.Surface((width, height))
+    default_surface = pygame.Surface((width, height_limit))
     default_surface.fill(GRAY)
     return default_surface
 
 
-def get_poster_image(title, api_key, poster_width=200, poster_height=280):
+def get_poster_image(title, api_key, poster_width=216, poster_height_limit=320):
     """
     Attempts to load a poster image: 
     1. From local assets based on title.
@@ -111,7 +121,12 @@ def get_poster_image(title, api_key, poster_width=200, poster_height=280):
             try:
                 print(f"Loading local poster for {title}...")
                 image_surface = pygame.image.load(local_path).convert_alpha()
-                return pygame.transform.scale(image_surface, (poster_width, poster_height))
+
+                # NEW LOCAL SCALING LOGIC
+                new_height = int(poster_width * (image_surface.get_height() / image_surface.get_width()))
+                final_height = min(new_height, poster_height_limit)
+
+                return pygame.transform.scale(image_surface, (poster_width, final_height))
             except pygame.error as e:
                 print(f"Error loading local image {local_path}: {e}. Trying API next.")
                 # Continue to API if local load fails
@@ -134,7 +149,8 @@ def get_poster_image(title, api_key, poster_width=200, poster_height=280):
         if data.get('Response') == 'True' and data.get('Poster') not in ('N/A', None):
             poster_url = data['Poster']
             print(f"Fetched poster URL for {title}: {poster_url}")
-            return load_image_from_url(poster_url, poster_width, poster_height)
+            # UPDATED: Pass width and height_limit to loader
+            return load_image_from_url(poster_url, poster_width, poster_height_limit)
         else:
             print(f"API Failed: Poster not found for {title}. OMDb response: {data.get('Error', 'N/A')}")
 
@@ -146,7 +162,8 @@ def get_poster_image(title, api_key, poster_width=200, poster_height=280):
     # ----------------------------------------------------
     # Fallback: return a randomly colored surface
     print(f"Using default fallback surface for {title}")
-    default_surface = pygame.Surface((poster_width, poster_height))
+    # UPDATED: Use width and height_limit for fallback surface size
+    default_surface = pygame.Surface((poster_width, poster_height_limit))
     default_surface.fill((random.randint(100, 200), random.randint(100, 200), random.randint(100, 200)))
     return default_surface
 
@@ -184,7 +201,11 @@ class Poster(pygame.sprite.Sprite):
         self.lane = lane
         self.title = title
         self.rect.centerx = lane * LANE_WIDTH + LANE_WIDTH // 2
-        self.rect.y = -280 
+        
+        # CHANGED: Align the poster by its bottom edge, starting it at Y=0 (the top of the screen).
+        # Pygame automatically calculates rect.y = rect.bottom - rect.height.
+        self.rect.bottom = 0
+        
         self.speed = 2
         self.title_surface = font.render(self.title, True, WHITE)
 
