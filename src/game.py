@@ -3,15 +3,19 @@ import random
 import sys
 import json
 import os
-import requests  # <-- NEW: Import requests for API calls
-from io import BytesIO # <-- NEW: Import BytesIO for image processing
+import requests
+from io import BytesIO
+from requests.packages.urllib3.exceptions import InsecureRequestWarning
 
 pygame.init()
+
+# Suppress the warning caused by setting verify=False
+requests.packages.urllib3.disable_warnings(InsecureRequestWarning)
 
 # --- API Configuration ---
 # !!! IMPORTANT: Replace this placeholder with your actual OMDb API key
 OMDB_API_KEY = "70e7e6d9" 
-OMDB_URL = "http://www.omdbapi.com/?i=tt3896198&apikey=70e7e6d9"
+OMDB_URL = "http://www.omdbapi.com"
 
 
 # --- Screen and layout ---
@@ -22,6 +26,10 @@ PANEL_X = GAME_WIDTH
 PANEL_WIDTH = SCREEN_WIDTH - GAME_WIDTH
 LANE_COUNT = 2
 LANE_WIDTH = GAME_WIDTH // LANE_COUNT
+
+# --- Local Asset Path ---
+# Points to a folder named 'assets/posters' one directory up from 'src'
+POSTER_ASSET_DIR = os.path.join(os.path.dirname(__file__), "..", "assets", "posters")
 
 # --- Colors ---
 GREEN = (80, 150, 80)  # grassy background
@@ -62,16 +70,18 @@ def wrap_text_multi(text, font, max_width):
 
     return lines
 
-# --- NEW HELPER FUNCTIONS ---
+# --- HELPER FUNCTIONS ---
 
 def load_image_from_url(url, width, height):
     """Downloads an image from a URL and returns a scaled Pygame Surface."""
     try:
-        response = requests.get(url)
+        # --- CRITICAL CHANGE: Added verify=False here ---
+        response = requests.get(url, verify=False)
         response.raise_for_status() # Check for bad status codes
+        
         image_file = BytesIO(response.content)
         image_surface = pygame.image.load(image_file).convert_alpha()
-        # CHANGED: Scale the image to the new poster size (200x280) - logic handles the new width/height variables
+        # Scale the image to the new poster size (200x280)
         return pygame.transform.scale(image_surface, (width, height))
     except requests.exceptions.RequestException as e:
         print(f"Error fetching image from URL {url}: {e}")
@@ -86,18 +96,39 @@ def load_image_from_url(url, width, height):
 
 def get_poster_image(title, api_key, poster_width=200, poster_height=280):
     """
-    Fetches the poster URL from OMDb and loads the image into a Pygame Surface.
-    
-    Note: Network calls are synchronous and can freeze the game. 
-    For a production app, use multithreading for API requests.
+    Attempts to load a poster image: 
+    1. From local assets based on title.
+    2. From OMDb API if local image is not found.
+    3. Returns a fallback surface if both fail.
     """
+    
+    # ----------------------------------------------------
+    # 1. ATTEMPT LOCAL FILE LOAD (PRIORITY)
+    # ----------------------------------------------------
+    for ext in ['.jpg', '.png']:
+        local_path = os.path.join(POSTER_ASSET_DIR, title + ext)
+        if os.path.exists(local_path):
+            try:
+                print(f"Loading local poster for {title}...")
+                image_surface = pygame.image.load(local_path).convert_alpha()
+                return pygame.transform.scale(image_surface, (poster_width, poster_height))
+            except pygame.error as e:
+                print(f"Error loading local image {local_path}: {e}. Trying API next.")
+                # Continue to API if local load fails
+                break
+
+    # ----------------------------------------------------
+    # 2. ATTEMPT API LOAD (FALLBACK)
+    # ----------------------------------------------------
     try:
         params = {
             't': title,      # Search by exact title
             'apikey': api_key,
-            'plot': 'short'  # Optional: request is still fast
+            'plot': 'short'
         }
-        response = requests.get(OMDB_URL, params=params)
+        
+        # SSL Bypass is kept here to resolve the certificate error
+        response = requests.get(OMDB_URL, params=params, verify=False) 
         data = response.json()
 
         if data.get('Response') == 'True' and data.get('Poster') not in ('N/A', None):
@@ -105,12 +136,16 @@ def get_poster_image(title, api_key, poster_width=200, poster_height=280):
             print(f"Fetched poster URL for {title}: {poster_url}")
             return load_image_from_url(poster_url, poster_width, poster_height)
         else:
-            print(f"Poster not found for {title}. OMDb response: {data.get('Error', 'N/A')}")
+            print(f"API Failed: Poster not found for {title}. OMDb response: {data.get('Error', 'N/A')}")
 
     except Exception as e:
-        print(f"An error occurred during OMDb lookup for {title}: {e}")
+        print(f"API Failed: An error occurred during OMDb lookup for {title}: {e}")
 
+    # ----------------------------------------------------
+    # 3. RETURN FALLBACK (if both failed)
+    # ----------------------------------------------------
     # Fallback: return a randomly colored surface
+    print(f"Using default fallback surface for {title}")
     default_surface = pygame.Surface((poster_width, poster_height))
     default_surface.fill((random.randint(100, 200), random.randint(100, 200), random.randint(100, 200)))
     return default_surface
@@ -149,10 +184,7 @@ class Poster(pygame.sprite.Sprite):
         self.lane = lane
         self.title = title
         self.rect.centerx = lane * LANE_WIDTH + LANE_WIDTH // 2
-        
-        # CHANGED: Start position adjusted to the new height (280)
         self.rect.y = -280 
-        
         self.speed = 2
         self.title_surface = font.render(self.title, True, WHITE)
 
@@ -285,11 +317,11 @@ def main():
     running = True
     game_done = False
     title_screen = True
-
-    # NEW: Scrolling variables for the final screen
+    
+    # Scrolling variables for the final screen
     scroll_y = 0
-    scroll_speed = 30
-
+    scroll_speed = 30 
+    
     while running:
         screen.fill(GREEN)
         pygame.draw.rect(screen, GRAY, (0, 0, GAME_WIDTH, SCREEN_HEIGHT))
@@ -307,8 +339,8 @@ def main():
                         player.move_right()
 
                 panel.handle_event(event)
-
-            # NEW: Scrolling input handling when game is done
+            
+            # Scrolling input handling when game is done
             if game_done and event.type == pygame.MOUSEBUTTONDOWN:
                 # Mouse wheel scroll up = button 4 (scroll list down, increase scroll_y)
                 if event.button == 4:
@@ -316,6 +348,7 @@ def main():
                 # Mouse wheel scroll down = button 5 (scroll list up, decrease scroll_y)
                 elif event.button == 5:
                     scroll_y -= scroll_speed
+
 
         # Title screen
         if title_screen:
@@ -327,17 +360,16 @@ def main():
             title_screen = False
             continue
 
-        if not pair_active and current_pair_index < len(movie_pairs):
+        if not pair_active and current_pair_index < len(movie_pairs) and game_done == False:
             pair_active = True
             left_movie, right_movie = movie_pairs[current_pair_index]
             
-            # --- MODIFIED: Fetch and load poster images ---
+            # Fetch and load poster images, prioritizing local assets (OMDb call here)
             left_image = get_poster_image(left_movie, OMDB_API_KEY)
             right_image = get_poster_image(right_movie, OMDB_API_KEY)
             
             left_poster = Poster(0, left_movie, left_image)
             right_poster = Poster(1, right_movie, right_image)
-            # ----------------------------------------------
             
             posters.add(left_poster, right_poster)
             all_sprites.add(left_poster, right_poster)
@@ -346,7 +378,7 @@ def main():
 
         # Collision detection
         for poster in posters:
-            if player.rect.colliderect(poster.rect) and game_done == False:
+            if player.rect.colliderect(poster.rect):
                 panel.add_title(poster.title)
                 for other in list(posters):
                     other.kill()
@@ -375,33 +407,28 @@ def main():
             title = summary_font.render("Your Favorite Movies:", True, WHITE)
             screen.blit(title, (100, 40))
 
-            # --- NEW: Define Viewport and Calculate Total Content Height ---
+            # Define Viewport and Calculate Total Content Height
             VIEWPORT_Y_START = 80
             VIEWPORT_X_START = 100
             VIEWPORT_WIDTH = SCREEN_WIDTH - VIEWPORT_X_START * 2
             VIEWPORT_HEIGHT = SCREEN_HEIGHT - VIEWPORT_Y_START - 20 # 20px padding at bottom
             
-            # 1. Calculate the total height of the content (off-screen rendering logic)
+            # 1. Calculate the total height of the content
             total_content_height = 0
-            # Calculate height for all entries
             for t in panel.all_selected_titles:
-                # Use a narrower max_width for the summary screen rendering (e.g., 600)
                 lines = wrap_text_multi(t, summary_font, 600) 
                 
-                # Height of text + line spacing
                 entry_height = sum(summary_font.size(line)[1] + 4 for line in lines)
                 
-                # Add spacing between entries (12px)
                 total_content_height += entry_height + 12 
             
             # 2. Clamping scroll_y (limits scrolling)
             max_scroll_down = max(0, total_content_height - VIEWPORT_HEIGHT)
-            # scroll_y should be between -max_scroll_down (scrolled fully down) and 0 (scrolled fully up)
             scroll_y = max(min(scroll_y, 0), -max_scroll_down)
             
             # 3. Draw the movie list within the viewport
             
-            # Set a clipping rectangle to ensure elements don't spill outside the viewport
+            # Set a clipping rectangle
             clip_rect = pygame.Rect(0, VIEWPORT_Y_START, SCREEN_WIDTH, VIEWPORT_HEIGHT)
             screen.set_clip(clip_rect)
 

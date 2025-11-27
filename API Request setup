@@ -1,0 +1,6 @@
+# --- API Configuration ---
+# !!! IMPORTANT: Replace this placeholder with your actual OMDb API key
+OMDB_API_KEY = "70e7e6d9" 
+OMDB_URL = "https://www.omdbapi.com/?apikey=70e7e6d9"
+
+Ensure you have run pip install requests and created the assets/posters directory.
