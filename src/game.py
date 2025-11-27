@@ -30,6 +30,9 @@ WHITE = (255, 255, 255)
 BLACK = (0, 0, 0)
 PANEL_BG = (60, 60, 60)
 BUTTON_COLOR = (100, 180, 100)
+# NEW: Scrollbar colors
+SCROLL_TRACK_COLOR = (120, 120, 120)
+SCROLL_THUMB_COLOR = (190, 190, 190)
 
 # --- Game setup ---
 screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
@@ -283,6 +286,10 @@ def main():
     game_done = False
     title_screen = True
 
+    # NEW: Scrolling variables for the final screen
+    scroll_y = 0
+    scroll_speed = 30
+
     while running:
         screen.fill(GREEN)
         pygame.draw.rect(screen, GRAY, (0, 0, GAME_WIDTH, SCREEN_HEIGHT))
@@ -300,6 +307,15 @@ def main():
                         player.move_right()
 
                 panel.handle_event(event)
+
+            # NEW: Scrolling input handling when game is done
+            if game_done and event.type == pygame.MOUSEBUTTONDOWN:
+                # Mouse wheel scroll up = button 4 (scroll list down, increase scroll_y)
+                if event.button == 4:
+                    scroll_y += scroll_speed
+                # Mouse wheel scroll down = button 5 (scroll list up, decrease scroll_y)
+                elif event.button == 5:
+                    scroll_y -= scroll_speed
 
         # Title screen
         if title_screen:
@@ -352,21 +368,86 @@ def main():
         # Final screen
         if game_done:
             screen.fill(PANEL_BG)
-            y = 100
+            
             summary_font = pygame.font.Font(None, 40)
+            
+            # Draw Title
             title = summary_font.render("Your Favorite Movies:", True, WHITE)
             screen.blit(title, (100, 40))
 
-            # Show the full persistent list of all selected movies
+            # --- NEW: Define Viewport and Calculate Total Content Height ---
+            VIEWPORT_Y_START = 80
+            VIEWPORT_X_START = 100
+            VIEWPORT_WIDTH = SCREEN_WIDTH - VIEWPORT_X_START * 2
+            VIEWPORT_HEIGHT = SCREEN_HEIGHT - VIEWPORT_Y_START - 20 # 20px padding at bottom
+            
+            # 1. Calculate the total height of the content (off-screen rendering logic)
+            total_content_height = 0
+            # Calculate height for all entries
+            for t in panel.all_selected_titles:
+                # Use a narrower max_width for the summary screen rendering (e.g., 600)
+                lines = wrap_text_multi(t, summary_font, 600) 
+                
+                # Height of text + line spacing
+                entry_height = sum(summary_font.size(line)[1] + 4 for line in lines)
+                
+                # Add spacing between entries (12px)
+                total_content_height += entry_height + 12 
+            
+            # 2. Clamping scroll_y (limits scrolling)
+            max_scroll_down = max(0, total_content_height - VIEWPORT_HEIGHT)
+            # scroll_y should be between -max_scroll_down (scrolled fully down) and 0 (scrolled fully up)
+            scroll_y = max(min(scroll_y, 0), -max_scroll_down)
+            
+            # 3. Draw the movie list within the viewport
+            
+            # Set a clipping rectangle to ensure elements don't spill outside the viewport
+            clip_rect = pygame.Rect(0, VIEWPORT_Y_START, SCREEN_WIDTH, VIEWPORT_HEIGHT)
+            screen.set_clip(clip_rect)
+
+            current_y_render = VIEWPORT_Y_START + scroll_y
+            
+            # Draw the list, applying the scroll offset
             for t in panel.all_selected_titles:
                 lines = wrap_text_multi(t, summary_font, 600)
-                y_line = y
+                y_line = current_y_render
+                
+                # Render and draw lines
                 for line in lines:
                     text = summary_font.render(line, True, WHITE)
-                    screen.blit(text, (100, y_line))
+                    screen.blit(text, (VIEWPORT_X_START, y_line))
                     y_line += text.get_height() + 4
-                y = y_line + 12
+                
+                current_y_render = y_line + 8 # Spacing between entries
+            
+            # Reset clipping
+            screen.set_clip(None)
 
+            # 4. Draw Scrollbar
+            if total_content_height > VIEWPORT_HEIGHT:
+                SCROLLBAR_WIDTH = 10
+                SCROLLBAR_X = SCREEN_WIDTH - 20 # Position near the right edge
+                
+                # Calculate bar height and position
+                scrollbar_height_ratio = VIEWPORT_HEIGHT / total_content_height
+                scrollbar_display_height = max(20, VIEWPORT_HEIGHT * scrollbar_height_ratio) # min height 20px
+                
+                # Calculate bar position: map scroll_y (negative) to a positive position
+                scroll_ratio = -scroll_y / max_scroll_down
+                bar_y_offset = (VIEWPORT_HEIGHT - scrollbar_display_height) * scroll_ratio
+                
+                scrollbar_rect = pygame.Rect(
+                    SCROLLBAR_X,
+                    VIEWPORT_Y_START + bar_y_offset,
+                    SCROLLBAR_WIDTH,
+                    scrollbar_display_height
+                )
+                
+                # Draw the scrollbar track (background)
+                pygame.draw.rect(screen, SCROLL_TRACK_COLOR, (SCROLLBAR_X, VIEWPORT_Y_START, SCROLLBAR_WIDTH, VIEWPORT_HEIGHT), border_radius=5)
+                # Draw the scrollbar thumb
+                pygame.draw.rect(screen, SCROLL_THUMB_COLOR, scrollbar_rect, border_radius=5)
+            
         pygame.display.flip()
         clock.tick(60)
 
