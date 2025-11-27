@@ -36,17 +36,31 @@ GREEN = (80, 150, 80)  # grassy background
 GRAY = (90, 90, 90)    # pavement lanes
 WHITE = (255, 255, 255)
 BLACK = (0, 0, 0)
+RED = (200, 50, 50)
 PANEL_BG = (60, 60, 60)
 BUTTON_COLOR = (100, 180, 100)
 # NEW: Scrollbar colors
 SCROLL_TRACK_COLOR = (120, 120, 120)
 SCROLL_THUMB_COLOR = (190, 190, 190)
+RESULTS_BOX_BG = (40, 40, 40) # New background for the movie list box
+RESET_BUTTON_COLOR = (50, 50, 150) # New color for the reset button
+
+# --- Game States ---
+TITLE_SCREEN = 0
+RUNNING = 1
+DONE = 2
 
 # --- Game setup ---
 screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
 pygame.display.set_caption("Pick Your Favorite Movie!")
 clock = pygame.time.Clock()
 font = pygame.font.Font(None, 36)
+
+# NEW: Dedicated fonts for game experience
+TITLE_FONT = pygame.font.SysFont('Consolas', 72, bold=True) # Pixel-art style font simulation
+INSTRUCTION_FONT = pygame.font.Font(None, 30)
+SUMMARY_TITLE_FONT = pygame.font.SysFont('Consolas', 48, bold=True) # Similar style for results
+RESET_SYMBOL_FONT = pygame.font.Font(None, 40) # Font for the arrow symbol
 
 def wrap_text_multi(text, font, max_width):
     """
@@ -313,8 +327,84 @@ def load_movie_categories():
     with open(json_path, "r", encoding="utf-8") as f:
         return json.load(f)
 
+def draw_title_screen(screen):
+    """Draws the main title screen with instructions."""
+    screen.fill(BLACK) # Black screen for dramatic intro
+
+    # 1. Draw Title
+    title_text = TITLE_FONT.render("MOVIE RUNNER", True, RED)
+    title_rect = title_text.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 4))
+    screen.blit(title_text, title_rect)
+
+    # 2. Instruction Box Setup
+    box_width = 500
+    box_height = 250
+    box_rect = pygame.Rect(0, 0, box_width, box_height)
+    box_rect.center = (SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 + 50)
+
+    # Draw the instruction box background
+    pygame.draw.rect(screen, PANEL_BG, box_rect, border_radius=10)
+    pygame.draw.rect(screen, WHITE, box_rect, 3, border_radius=10) # Border
+
+    # 3. Draw Instructions inside the box
+    instruction_lines = [
+        "BUILD YOUR FAVORITE FILMOGRAPHY!",
+        "",
+        "Use the Left/Right Arrow Keys to move",
+        "and select between 2 movie posters",
+        "to create your favorite collection!",
+        "",
+        "Click 'Done!' to end and see your choices.",
+        "",
+        "PRESS SPACEBAR TO BEGIN"
+    ]
+    
+    y_offset = box_rect.top + 20
+    text_x = box_rect.left + 20
+
+    for line in instruction_lines:
+        color = WHITE
+        if "PRESS SPACEBAR" in line:
+            color = RED
+        
+        text_surface = INSTRUCTION_FONT.render(line, True, color)
+
+        # Calculate X position for centering the text within the instruction box
+        centered_x = box_rect.left + (box_rect.width - text_surface.get_width()) // 2
+        
+        screen.blit(text_surface, (centered_x, y_offset))
+        y_offset += text_surface.get_height() + 5
 
 # --- Game Loop ---
+
+def reset_game(player, all_sprites, posters, panel, movie_pairs, movie_categories):
+    """Resets all game state variables and returns new/reset objects."""
+    
+    # 1. Reset Display Groups
+    all_sprites.empty()
+    posters.empty()
+    
+    # 2. Re-initialize Player
+    player = Player()
+    all_sprites.add(player)
+
+    # 3. Reset Selection Panel
+    panel.selected_titles = []
+    panel.all_selected_titles = []
+    panel.is_done = False
+    
+    # 4. Re-shuffle Movie Pairs
+    all_movies = []
+    for category, movies in movie_categories.items():
+        all_movies.extend(movies)
+        
+    random.shuffle(all_movies)
+    movie_pairs = list(zip(all_movies[0::2], all_movies[1::2]))
+    
+    # 5. Return necessary variables for the main loop
+    return player, all_sprites, posters, panel, movie_pairs, 0, False, TITLE_SCREEN, 0
+
+
 def main():
     player = Player()
     all_sprites = pygame.sprite.Group(player)
@@ -336,23 +426,27 @@ def main():
     pair_active = False
 
     running = True
-    game_done = False
-    title_screen = True
+    game_state = TITLE_SCREEN # Start in the new TITLE_SCREEN state
     
     # Scrolling variables for the final screen
     scroll_y = 0
     scroll_speed = 30 
     
-    while running:
-        screen.fill(GREEN)
-        pygame.draw.rect(screen, GRAY, (0, 0, GAME_WIDTH, SCREEN_HEIGHT))
+    # New: Reset button rect (40x40 square, placed near the title)
+    RESET_BUTTON_RECT = pygame.Rect(SCREEN_WIDTH - 70, 45, 40, 40)
 
+    while running:
+        # EVENT HANDLING
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 pygame.quit()
                 sys.exit()
 
-            if not game_done:
+            if game_state == TITLE_SCREEN:
+                if event.type == pygame.KEYDOWN and event.key == pygame.K_SPACE:
+                    game_state = RUNNING
+            
+            elif game_state == RUNNING:
                 if event.type == pygame.KEYDOWN:
                     if event.key == pygame.K_LEFT:
                         player.move_left()
@@ -361,85 +455,123 @@ def main():
 
                 panel.handle_event(event)
             
-            # Scrolling input handling when game is done
-            if game_done and event.type == pygame.MOUSEBUTTONDOWN:
-                # Mouse wheel scroll up = button 4 (scroll list down, increase scroll_y)
-                if event.button == 4:
-                    scroll_y += scroll_speed
-                # Mouse wheel scroll down = button 5 (scroll list up, decrease scroll_y)
-                elif event.button == 5:
-                    scroll_y -= scroll_speed
+             # Scrolling and Button Input handling when game is done
+            elif game_state == DONE:
+                if event.type == pygame.MOUSEBUTTONDOWN:
+                    # Check for Reset Button click
+                    if RESET_BUTTON_RECT.collidepoint(event.pos):
+                        (player, all_sprites, posters, panel, movie_pairs, 
+                         current_pair_index, pair_active, game_state, scroll_y) = \
+                            reset_game(player, all_sprites, posters, panel, movie_pairs, movie_categories)
+                        continue # Skip rest of the loop to immediately draw title screen
 
+                    # Mouse wheel scroll handling
+                    # Mouse wheel scroll up = button 4 (scroll list down, increase scroll_y)
+                    if event.button == 4:
+                        scroll_y += scroll_speed
+                    # Mouse wheel scroll down = button 5 (scroll list up, decrease scroll_y)
+                    elif event.button == 5:
+                        scroll_y -= scroll_speed
 
-        # Title screen
-        if title_screen:
-            title_text = font.render("Pick your favorite movie from each pair!", True, WHITE)
-            text_rect = title_text.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2))
-            screen.blit(title_text, text_rect)
-            pygame.display.flip()
-            pygame.time.wait(2000)
-            title_screen = False
-            continue
-
-        if not pair_active and current_pair_index < len(movie_pairs) and game_done == False:
-            pair_active = True
-            left_movie, right_movie = movie_pairs[current_pair_index]
+        
+        # STATE MACHINE DRAWING AND UPDATING
+        if game_state == TITLE_SCREEN:
+            draw_title_screen(screen)
+        
+        elif game_state == RUNNING:
             
-            # Fetch and load poster images, prioritizing local assets (OMDb call here)
-            left_image = get_poster_image(left_movie, OMDB_API_KEY)
-            right_image = get_poster_image(right_movie, OMDB_API_KEY)
+            # Backgrounds
+            screen.fill(GREEN)
+            pygame.draw.rect(screen, GRAY, (0, 0, GAME_WIDTH, SCREEN_HEIGHT))
+
+            # Game Logic
+            if not pair_active and current_pair_index < len(movie_pairs):
+                pair_active = True
+                left_movie, right_movie = movie_pairs[current_pair_index]
+                
+                # Fetch and load poster images, prioritizing local assets (OMDb call here)
+                left_image = get_poster_image(left_movie, OMDB_API_KEY)
+                right_image = get_poster_image(right_movie, OMDB_API_KEY)
+                
+                left_poster = Poster(0, left_movie, left_image)
+                right_poster = Poster(1, right_movie, right_image)
+                
+                posters.add(left_poster, right_poster)
+                all_sprites.add(left_poster, right_poster)
+
+            all_sprites.update()
+
+            # Collision detection
+            for poster in posters:
+                if player.rect.colliderect(poster.rect):
+                    panel.add_title(poster.title)
+                    for other in list(posters):
+                        other.kill()
+                    pair_active = False
+                    current_pair_index += 1
+                    break
+
+            # Draw everything
+            for poster in posters:
+                poster.draw(screen)
+
+            all_sprites.draw(screen)
+            panel.draw(screen)
+
+            # Check done condition
+            if panel.is_done or current_pair_index >= len(movie_pairs):
+                game_state = DONE
+
+        
+        elif game_state == DONE:
             
-            left_poster = Poster(0, left_movie, left_image)
-            right_poster = Poster(1, right_movie, right_image)
+            screen.fill(BLACK) # Use black background for final screen
+
+            # 1. Draw Title (Similar style to Intro Screen)
+            summary_title_text = SUMMARY_TITLE_FONT.render("YOUR FILMOGRAPHY", True, RED)
+            summary_title_rect = summary_title_text.get_rect(center=(SCREEN_WIDTH // 2, 70))
+            screen.blit(summary_title_text, summary_title_rect)
+
+            # 1b. Draw Reset Button
+            pygame.draw.rect(screen, RESET_BUTTON_COLOR, RESET_BUTTON_RECT, border_radius=5)
+            # Draw the left-pointing arrow (<< or a filled triangle)
+            arrow_text = RESET_SYMBOL_FONT.render("<<", True, WHITE) # Using double-arrow as symbol
+            arrow_rect = arrow_text.get_rect(center=RESET_BUTTON_RECT.center)
+            screen.blit(arrow_text, arrow_rect)
+
+
+            # 2. Define Content Box and Viewport
+            CONTENT_BOX_MARGIN = 50
+            CONTENT_BOX_WIDTH = SCREEN_WIDTH - CONTENT_BOX_MARGIN * 2
+            CONTENT_BOX_HEIGHT = SCREEN_HEIGHT - summary_title_rect.bottom - 40
             
-            posters.add(left_poster, right_poster)
-            all_sprites.add(left_poster, right_poster)
-
-        all_sprites.update()
-
-        # Collision detection
-        for poster in posters:
-            if player.rect.colliderect(poster.rect):
-                panel.add_title(poster.title)
-                for other in list(posters):
-                    other.kill()
-                pair_active = False
-                current_pair_index += 1
-                break
-
-        # Draw everything
-        for poster in posters:
-            poster.draw(screen)
-
-        all_sprites.draw(screen)
-        panel.draw(screen)
-
-        # Check done
-        if panel.is_done or current_pair_index >= len(movie_pairs):
-            game_done = True
-
-        # Final screen
-        if game_done:
-            screen.fill(PANEL_BG)
+            CONTENT_BOX_RECT = pygame.Rect(
+                CONTENT_BOX_MARGIN, 
+                summary_title_rect.bottom + 20, 
+                CONTENT_BOX_WIDTH, 
+                CONTENT_BOX_HEIGHT
+            )
             
-            summary_font = pygame.font.Font(None, 40)
-            
-            # Draw Title
-            title = summary_font.render("Your Favorite Movies:", True, WHITE)
-            screen.blit(title, (100, 40))
+            # Draw the background for the movie list box
+            pygame.draw.rect(screen, RESULTS_BOX_BG, CONTENT_BOX_RECT, border_radius=10)
+            pygame.draw.rect(screen, WHITE, CONTENT_BOX_RECT, 2, border_radius=10)
 
             # Define Viewport and Calculate Total Content Height
-            VIEWPORT_Y_START = 80
-            VIEWPORT_X_START = 100
-            VIEWPORT_WIDTH = SCREEN_WIDTH - VIEWPORT_X_START * 2
-            VIEWPORT_HEIGHT = SCREEN_HEIGHT - VIEWPORT_Y_START - 20 # 20px padding at bottom
+            VIEWPORT_X_START = CONTENT_BOX_RECT.left + 20
+            VIEWPORT_Y_START = CONTENT_BOX_RECT.top + 20
+            VIEWPORT_WIDTH = CONTENT_BOX_RECT.width - 40 # Account for list margins and scrollbar space
+            VIEWPORT_HEIGHT = CONTENT_BOX_RECT.height - 40
             
+            # The font for the list items
+            list_font = pygame.font.Font(None, 36)
+
             # 1. Calculate the total height of the content
             total_content_height = 0
             for t in panel.all_selected_titles:
-                lines = wrap_text_multi(t, summary_font, 600) 
+                # Use VIEWPORT_WIDTH for wrapping, minus some internal padding
+                lines = wrap_text_multi(t, list_font, VIEWPORT_WIDTH - 20) 
                 
-                entry_height = sum(summary_font.size(line)[1] + 4 for line in lines)
+                entry_height = sum(list_font.size(line)[1] + 4 for line in lines)
                 
                 total_content_height += entry_height + 12 
             
@@ -449,20 +581,25 @@ def main():
             
             # 3. Draw the movie list within the viewport
             
-            # Set a clipping rectangle
-            clip_rect = pygame.Rect(0, VIEWPORT_Y_START, SCREEN_WIDTH, VIEWPORT_HEIGHT)
+            # Set a clipping rectangle to confine the list to the box
+            clip_rect = pygame.Rect(
+                CONTENT_BOX_RECT.left + 1, 
+                CONTENT_BOX_RECT.top + 1, 
+                CONTENT_BOX_RECT.width - 2, 
+                CONTENT_BOX_RECT.height - 2
+            )
             screen.set_clip(clip_rect)
 
             current_y_render = VIEWPORT_Y_START + scroll_y
             
             # Draw the list, applying the scroll offset
             for t in panel.all_selected_titles:
-                lines = wrap_text_multi(t, summary_font, 600)
+                lines = wrap_text_multi(t, list_font, VIEWPORT_WIDTH - 20)
                 y_line = current_y_render
                 
                 # Render and draw lines
                 for line in lines:
-                    text = summary_font.render(line, True, WHITE)
+                    text = list_font.render(line, True, WHITE)
                     screen.blit(text, (VIEWPORT_X_START, y_line))
                     y_line += text.get_height() + 4
                 
@@ -474,9 +611,10 @@ def main():
             # 4. Draw Scrollbar
             if total_content_height > VIEWPORT_HEIGHT:
                 SCROLLBAR_WIDTH = 10
-                SCROLLBAR_X = SCREEN_WIDTH - 20 # Position near the right edge
+                # Position scrollbar inside the right edge of the content box
+                SCROLLBAR_X = CONTENT_BOX_RECT.right - SCROLLBAR_WIDTH - 10 
                 
-                # Calculate bar height and position
+                # Calculate bar height and position relative to the CONTENT_BOX_RECT
                 scrollbar_height_ratio = VIEWPORT_HEIGHT / total_content_height
                 scrollbar_display_height = max(20, VIEWPORT_HEIGHT * scrollbar_height_ratio) # min height 20px
                 
