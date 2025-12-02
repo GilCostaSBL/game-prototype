@@ -286,36 +286,112 @@ class SelectionPanel:
     def __init__(self, x, width):
         self.x = x
         self.width = width
-        self.selected_titles = []       # last 5 shown
+        # self.selected_titles = []       # Removed: use all_selected_titles for full list
         self.all_selected_titles = []   # full history
         self.font = pygame.font.Font(None, 28)
         self.done_button_rect = pygame.Rect(x + 20, SCREEN_HEIGHT - 60, width - 40, 40)
         self.is_done = False
 
+        # NEW SCROLLING VARIABLES
+        self.scroll_y = 0
+        self.scroll_speed = 30
+        
+        # Define the viewport for the list content
+        self.LIST_MARGIN = 10
+        self.VIEWPORT_Y_START = 40
+        # VIEWPORT_HEIGHT is calculated based on screen height minus margins and button height
+        self.VIEWPORT_HEIGHT = SCREEN_HEIGHT - self.VIEWPORT_Y_START - self.done_button_rect.height - 40
+        self.VIEWPORT_WIDTH = self.width - self.LIST_MARGIN * 2 - 10 # 10px buffer for scrollbar
+        self.VIEWPORT_RECT = pygame.Rect(
+            self.x + self.LIST_MARGIN,
+            self.VIEWPORT_Y_START,
+            self.width - self.LIST_MARGIN * 2,
+            self.VIEWPORT_HEIGHT
+        )
+
     def add_title(self, title):
         self.all_selected_titles.append(title)
-        self.selected_titles.insert(0, title)
-        if len(self.selected_titles) > 5:
-            self.selected_titles.pop()
+        # Note: No need to limit the list size here.
 
     def draw(self, screen):
+        # 1. Draw Panel Background
         pygame.draw.rect(screen, PANEL_BG, (self.x, 0, self.width, SCREEN_HEIGHT))
-        y = 40
-        for title in self.selected_titles:
-            lines = wrap_text_multi(title, self.font, self.width - 40)
-
-            y_start = y
-            for line in lines:
-                text = self.font.render(line, True, WHITE)
-                screen.blit(text, (self.x + 20, y_start))
-                y_start += text.get_height() + 2
-
-            y = y_start + 8  # spacing between entries
-
+        
+        # 2. Draw Done Button
         pygame.draw.rect(screen, BUTTON_COLOR, self.done_button_rect)
         btn_text = self.font.render("Done!", True, BLACK)
         text_rect = btn_text.get_rect(center=self.done_button_rect.center)
         screen.blit(btn_text, text_rect)
+
+        # 3. Content Rendering (Scrolling Logic)
+        
+        # --- Calculate Total Content Height ---
+        total_content_height = 0
+        list_font = self.font
+        
+        for t in self.all_selected_titles:
+            lines = wrap_text_multi(t, list_font, self.VIEWPORT_WIDTH)
+            entry_height = sum(list_font.size(line)[1] + 4 for line in lines)
+            total_content_height += entry_height + 8 # 8px spacing between entries
+
+        # --- Clamping scroll_y ---
+        max_scroll_down = max(0, total_content_height - self.VIEWPORT_HEIGHT)
+        self.scroll_y = max(min(self.scroll_y, 0), -max_scroll_down)
+
+        # --- Draw List within Viewport (Clipping) ---
+        
+        # Set a clipping rectangle 
+        clip_rect = self.VIEWPORT_RECT.copy()
+        clip_rect.x += 1
+        clip_rect.y += 1
+        clip_rect.width -= 2
+        clip_rect.height -= 2
+        screen.set_clip(clip_rect)
+
+        current_y_render = self.VIEWPORT_Y_START + self.scroll_y
+        
+        # Draw the list, applying the scroll offset
+        for t in self.all_selected_titles:
+            lines = wrap_text_multi(t, list_font, self.VIEWPORT_WIDTH)
+            y_line = current_y_render
+            
+            # Render and draw lines
+            for line in lines:
+                text = list_font.render(line, True, WHITE)
+                screen.blit(text, (self.x + self.LIST_MARGIN, y_line))
+                y_line += text.get_height() + 4
+            
+            current_y_render = y_line + 4 # Spacing between entries
+        
+        # Reset clipping
+        screen.set_clip(None)
+
+        # --- Draw Scrollbar ---
+        if total_content_height > self.VIEWPORT_HEIGHT:
+            SCROLLBAR_WIDTH = 8
+            # Position scrollbar on the far right of the content area
+            SCROLLBAR_X = self.x + self.width - self.LIST_MARGIN - SCROLLBAR_WIDTH 
+            
+            # Calculate bar height and position relative to the VIEWPORT_RECT
+            scrollbar_height_ratio = self.VIEWPORT_HEIGHT / total_content_height
+            scrollbar_display_height = max(15, self.VIEWPORT_HEIGHT * scrollbar_height_ratio) # min height
+            
+            # Calculate bar position: map scroll_y (negative) to a positive position
+            scroll_ratio = -self.scroll_y / max_scroll_down
+            bar_y_offset = (self.VIEWPORT_HEIGHT - scrollbar_display_height) * scroll_ratio
+            
+            scrollbar_rect = pygame.Rect(
+                SCROLLBAR_X,
+                self.VIEWPORT_Y_START + bar_y_offset,
+                SCROLLBAR_WIDTH,
+                scrollbar_display_height
+            )
+            
+            # Draw the scrollbar track (background)
+            pygame.draw.rect(screen, SCROLL_TRACK_COLOR, (SCROLLBAR_X, self.VIEWPORT_Y_START, SCROLLBAR_WIDTH, self.VIEWPORT_HEIGHT), border_radius=4)
+            # Draw the scrollbar thumb
+            pygame.draw.rect(screen, SCROLL_THUMB_COLOR, scrollbar_rect, border_radius=4)
+
 
     def handle_event(self, event):
         if event.type == pygame.MOUSEBUTTONDOWN:
@@ -328,39 +404,37 @@ def load_movie_categories():
         return json.load(f)
 
 def draw_title_screen(screen):
-    """Draws the main title screen with instructions."""
+    """Draws the main title screen with instructions, now with centered text."""
     screen.fill(BLACK) # Black screen for dramatic intro
 
-    # 1. Draw Title
-    title_text = TITLE_FONT.render("MOVIE RUNNER", True, RED)
+    # 1. Draw Title (Already Centered)
+    title_text = TITLE_FONT.render("MOVIE MANIA RUNNER", True, RED)
     title_rect = title_text.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 4))
     screen.blit(title_text, title_rect)
 
-    # 2. Instruction Box Setup
+    # 2. Instruction Box Setup (Already Centered)
     box_width = 500
     box_height = 250
     box_rect = pygame.Rect(0, 0, box_width, box_height)
     box_rect.center = (SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 + 50)
 
-    # Draw the instruction box background
+    # Draw the instruction box background and border
     pygame.draw.rect(screen, PANEL_BG, box_rect, border_radius=10)
-    pygame.draw.rect(screen, WHITE, box_rect, 3, border_radius=10) # Border
+    pygame.draw.rect(screen, WHITE, box_rect, 3, border_radius=10) 
 
-    # 3. Draw Instructions inside the box
+    # 3. Draw Instructions inside the box (Now Centered)
     instruction_lines = [
         "BUILD YOUR FAVORITE FILMOGRAPHY!",
         "",
-        "Use the Left/Right Arrow Keys to move",
-        "and select between 2 movie posters",
-        "to create your favorite collection!",
-        "",
-        "Click 'Done!' to end and see your choices.",
+        "Use the Left/Right Arrow Keys to move and",
+        "collide with the poster of the movie you prefer.",
+        "The selection is added to your film list, and ",
+        "click 'Done!' when you've made enough choices.",
         "",
         "PRESS SPACEBAR TO BEGIN"
     ]
     
     y_offset = box_rect.top + 20
-    text_x = box_rect.left + 20
 
     for line in instruction_lines:
         color = WHITE
@@ -368,7 +442,7 @@ def draw_title_screen(screen):
             color = RED
         
         text_surface = INSTRUCTION_FONT.render(line, True, color)
-
+        
         # Calculate X position for centering the text within the instruction box
         centered_x = box_rect.left + (box_rect.width - text_surface.get_width()) // 2
         
@@ -389,9 +463,9 @@ def reset_game(player, all_sprites, posters, panel, movie_pairs, movie_categorie
     all_sprites.add(player)
 
     # 3. Reset Selection Panel
-    panel.selected_titles = []
     panel.all_selected_titles = []
     panel.is_done = False
+    panel.scroll_y = 0 # NEW: Reset scroll position
     
     # 4. Re-shuffle Movie Pairs
     all_movies = []
@@ -428,14 +502,15 @@ def main():
     running = True
     game_state = TITLE_SCREEN # Start in the new TITLE_SCREEN state
     
-    # Scrolling variables for the final screen
+    # Scrolling variables for the final screen (kept separate from panel scroll_y)
     scroll_y = 0
     scroll_speed = 30 
-    
-    # New: Reset button rect (40x40 square, placed near the title)
-    RESET_BUTTON_RECT = pygame.Rect(SCREEN_WIDTH - 70, 45, 40, 40)
 
+    # Reset button rect (40x40 square, placed near the title)
+    RESET_BUTTON_RECT = pygame.Rect(SCREEN_WIDTH - 70, 45, 40, 40)
+    
     while running:
+        
         # EVENT HANDLING
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
@@ -454,8 +529,15 @@ def main():
                         player.move_right()
 
                 panel.handle_event(event)
+
+                # NEW: Mouse wheel scrolling for the side panel
+                if event.type == pygame.MOUSEBUTTONDOWN:
+                    if event.button == 4: # Scroll Up
+                        panel.scroll_y += panel.scroll_speed
+                    elif event.button == 5: # Scroll Down
+                        panel.scroll_y -= panel.scroll_speed
             
-             # Scrolling and Button Input handling when game is done
+            # Scrolling and Button Input handling when game is done
             elif game_state == DONE:
                 if event.type == pygame.MOUSEBUTTONDOWN:
                     # Check for Reset Button click
@@ -465,7 +547,7 @@ def main():
                             reset_game(player, all_sprites, posters, panel, movie_pairs, movie_categories)
                         continue # Skip rest of the loop to immediately draw title screen
 
-                    # Mouse wheel scroll handling
+                    # Mouse wheel scroll handling (for the final results box)
                     # Mouse wheel scroll up = button 4 (scroll list down, increase scroll_y)
                     if event.button == 4:
                         scroll_y += scroll_speed
