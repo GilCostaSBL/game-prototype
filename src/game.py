@@ -13,7 +13,6 @@ pygame.init()
 requests.packages.urllib3.disable_warnings(InsecureRequestWarning)
 
 # --- API Configuration ---
-# !!! IMPORTANT: Replace this placeholder with your actual OMDb API key
 OMDB_API_KEY = "70e7e6d9" 
 OMDB_URL = "http://www.omdbapi.com"
 
@@ -39,11 +38,12 @@ BLACK = (0, 0, 0)
 RED = (200, 50, 50)
 PANEL_BG = (60, 60, 60)
 BUTTON_COLOR = (100, 180, 100)
-# NEW: Scrollbar colors
+
+# Scrollbar colors
 SCROLL_TRACK_COLOR = (120, 120, 120)
 SCROLL_THUMB_COLOR = (190, 190, 190)
-RESULTS_BOX_BG = (40, 40, 40) # New background for the movie list box
-RESET_BUTTON_COLOR = (50, 50, 150) # New color for the reset button
+RESULTS_BOX_BG = (40, 40, 40) # background for the movie list box
+RESET_BUTTON_COLOR = (50, 50, 150) # color for the reset button
 
 # --- Game States ---
 TITLE_SCREEN = 0
@@ -56,7 +56,7 @@ pygame.display.set_caption("Pick Your Favorite Movie!")
 clock = pygame.time.Clock()
 font = pygame.font.Font(None, 36)
 
-# NEW: Dedicated fonts for game experience
+# Dedicated fonts for game experience
 TITLE_FONT = pygame.font.SysFont('Consolas', 72, bold=True) # Pixel-art style font simulation
 INSTRUCTION_FONT = pygame.font.Font(None, 30)
 SUMMARY_TITLE_FONT = pygame.font.SysFont('Consolas', 48, bold=True) # Similar style for results
@@ -117,7 +117,6 @@ def load_image_from_url(url, width, height_limit):
     default_surface.fill(GRAY)
     return default_surface
 
-
 def get_poster_image(title, api_key, poster_width=216, poster_height_limit=320):
     """
     Attempts to load a poster image: 
@@ -136,7 +135,7 @@ def get_poster_image(title, api_key, poster_width=216, poster_height_limit=320):
                 print(f"Loading local poster for {title}...")
                 image_surface = pygame.image.load(local_path).convert_alpha()
 
-                # NEW LOCAL SCALING LOGIC
+                # LOCAL SCALING LOGIC
                 new_height = int(poster_width * (image_surface.get_height() / image_surface.get_width()))
                 final_height = min(new_height, poster_height_limit)
 
@@ -163,7 +162,7 @@ def get_poster_image(title, api_key, poster_width=216, poster_height_limit=320):
         if data.get('Response') == 'True' and data.get('Poster') not in ('N/A', None):
             poster_url = data['Poster']
             print(f"Fetched poster URL for {title}: {poster_url}")
-            # UPDATED: Pass width and height_limit to loader
+            # Pass width and height_limit to loader
             return load_image_from_url(poster_url, poster_width, poster_height_limit)
         else:
             print(f"API Failed: Poster not found for {title}. OMDb response: {data.get('Error', 'N/A')}")
@@ -176,7 +175,7 @@ def get_poster_image(title, api_key, poster_width=216, poster_height_limit=320):
     # ----------------------------------------------------
     # Fallback: return a randomly colored surface
     print(f"Using default fallback surface for {title}")
-    # UPDATED: Use width and height_limit for fallback surface size
+    # Use width and height_limit for fallback surface size
     default_surface = pygame.Surface((poster_width, poster_height_limit))
     default_surface.fill((random.randint(100, 200), random.randint(100, 200), random.randint(100, 200)))
     return default_surface
@@ -286,13 +285,12 @@ class SelectionPanel:
     def __init__(self, x, width):
         self.x = x
         self.width = width
-        # self.selected_titles = []       # Removed: use all_selected_titles for full list
-        self.all_selected_titles = []   # full history
+        self.all_selected_titles = []       # full history
         self.font = pygame.font.Font(None, 28)
         self.done_button_rect = pygame.Rect(x + 20, SCREEN_HEIGHT - 60, width - 40, 40)
         self.is_done = False
 
-        # NEW SCROLLING VARIABLES
+        # SCROLLING VARIABLES
         self.scroll_y = 0
         self.scroll_speed = 30
         
@@ -407,12 +405,12 @@ def draw_title_screen(screen):
     """Draws the main title screen with instructions, now with centered text."""
     screen.fill(BLACK) # Black screen for dramatic intro
 
-    # 1. Draw Title (Already Centered)
+    # 1. Draw Title - Centered
     title_text = TITLE_FONT.render("MOVIE MANIA RUNNER", True, RED)
     title_rect = title_text.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 4))
     screen.blit(title_text, title_rect)
 
-    # 2. Instruction Box Setup (Already Centered)
+    # 2. Instruction Box Setup - Centered
     box_width = 500
     box_height = 250
     box_rect = pygame.Rect(0, 0, box_width, box_height)
@@ -422,7 +420,7 @@ def draw_title_screen(screen):
     pygame.draw.rect(screen, PANEL_BG, box_rect, border_radius=10)
     pygame.draw.rect(screen, WHITE, box_rect, 3, border_radius=10) 
 
-    # 3. Draw Instructions inside the box (Now Centered)
+    # 3. Draw Instructions inside the box - Centered
     instruction_lines = [
         "BUILD YOUR FAVORITE FILMOGRAPHY!",
         "",
@@ -465,7 +463,7 @@ def reset_game(player, all_sprites, posters, panel, movie_pairs, movie_categorie
     # 3. Reset Selection Panel
     panel.all_selected_titles = []
     panel.is_done = False
-    panel.scroll_y = 0 # NEW: Reset scroll position
+    panel.scroll_y = 0 # Reset scroll position
     
     # 4. Re-shuffle Movie Pairs
     all_movies = []
@@ -487,7 +485,7 @@ def main():
 
     movie_categories = load_movie_categories()
 
-    # Flatten all movies into a single list (for now)
+    # Flatten all movies into a single list
     all_movies = []
     for category, movies in movie_categories.items():
         all_movies.extend(movies)
@@ -530,7 +528,7 @@ def main():
 
                 panel.handle_event(event)
 
-                # NEW: Mouse wheel scrolling for the side panel
+                # Mouse wheel scrolling for the side panel
                 if event.type == pygame.MOUSEBUTTONDOWN:
                     if event.button == 4: # Scroll Up
                         panel.scroll_y += panel.scroll_speed
